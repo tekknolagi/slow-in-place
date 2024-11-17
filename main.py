@@ -56,12 +56,55 @@ BYTE_TO_VALTYPE = {
     0x6F: ExternRef,
 }
 
+IMPORT_DESC_FUNC = 0x00
+IMPORT_DESC_TABLE = 0x01
+IMPORT_DESC_MEMORY = 0x02
+IMPORT_DESC_GLOBAL = 0x03
+
 
 @dataclasses.dataclass
 class FuncType:
     inputs: list[ValType]
     outputs: list[ValType]
 
+@dataclasses.dataclass
+class Limits:
+    min: int
+    max: int | None
+
+@dataclasses.dataclass
+class TableType:
+    elem_type: RefType
+    limits: Limits
+
+@dataclasses.dataclass
+class MemoryType:
+    limits: Limits
+
+@dataclasses.dataclass
+class GlobalType:
+    val_type: ValType
+    mutable: bool
+
+@dataclasses.dataclass
+class ImportDesc:
+    pass
+
+@dataclasses.dataclass
+class FuncImportDesc(ImportDesc):
+    type_idx: int
+
+@dataclasses.dataclass
+class TableImportDesc(ImportDesc):
+    table_type: TableType
+
+@dataclasses.dataclass
+class MemoryImportDesc(ImportDesc):
+    memory_type: MemoryType
+
+@dataclasses.dataclass
+class GlobalImportDesc(ImportDesc):
+    global_type: GlobalType
 
 @dataclasses.dataclass
 class Validator:
@@ -114,6 +157,10 @@ class Validator:
     def read_u32(self) -> int:
         return self._read_leb128(signed=False, max=4)
 
+    def read_name(self) -> str:
+        size = self.read_u32()
+        return self.module.read(size).decode("utf-8")
+
     def parse_module(self) -> None:
         self.expect(MAGIC_NUMBER)
         self.expect(VERSION_1)
@@ -153,8 +200,30 @@ class Validator:
             assert idx == len(self.func_types)
             self.func_types.append(self.parse_func_type())
 
+    def parse_importdesc(self) -> ImportDesc:
+        kind = self.read_byte()
+        if kind == IMPORT_DESC_FUNC:
+            type_idx = self.read_u32()
+            return FuncImportDesc(type_idx)
+        elif kind == IMPORT_DESC_TABLE:
+            table_type = self.parse_tabletype()
+            return TableImportDesc(table_type)
+        elif kind == IMPORT_DESC_MEMORY:
+            memory_type = self.parse_memorytype()
+            return MemoryImportDesc(memory_type)
+        elif kind == IMPORT_DESC_GLOBAL:
+            global_type = self.parse_globaltype()
+            return GlobalImportDesc(global_type)
+        else:
+            raise ValueError(f"Unknown importdesc kind {kind}")
+
     def parse_import_section(self, size: int) -> None:
-        self.module.seek(size, io.SEEK_CUR)
+        count = self.read_u32()
+        for _ in range(count):
+            mod = self.read_name()
+            name = self.read_name()
+            desc_type = self.parse_importdesc()
+            print(f"import {mod}::{name} {desc_type}")
 
     def parse_function_section(self, size: int) -> None:
         self.module.seek(size, io.SEEK_CUR)
