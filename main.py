@@ -117,9 +117,17 @@ class GlobalImportDesc(ImportDesc):
 
 
 @dataclasses.dataclass
+class Import:
+    module: str
+    name: str
+    desc: ImportDesc
+
+
+@dataclasses.dataclass
 class Validator:
     module: io.BytesIO
     func_types: list[FuncType] = dataclasses.field(default_factory=list)
+    imports: list[ImportDesc] = dataclasses.field(default_factory=list)
 
     def expect(self, expected: bytes) -> None:
         actual = self.module.read(len(expected))
@@ -233,7 +241,7 @@ class Validator:
             mod = self.read_name()
             name = self.read_name()
             desc_type = self.parse_importdesc()
-            print(f"import {mod}::{name} {desc_type}")
+            self.imports.append(Import(mod, name, desc_type))
 
     def parse_function_section(self, size: int) -> None:
         self.module.seek(size, io.SEEK_CUR)
