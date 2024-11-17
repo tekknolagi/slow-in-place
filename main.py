@@ -67,44 +67,54 @@ class FuncType:
     inputs: list[ValType]
     outputs: list[ValType]
 
+
 @dataclasses.dataclass
 class Limits:
     min: int
     max: int | None
+
 
 @dataclasses.dataclass
 class TableType:
     elem_type: RefType
     limits: Limits
 
+
 @dataclasses.dataclass
 class MemoryType:
     limits: Limits
+
 
 @dataclasses.dataclass
 class GlobalType:
     val_type: ValType
     mutable: bool
 
+
 @dataclasses.dataclass
 class ImportDesc:
     pass
+
 
 @dataclasses.dataclass
 class FuncImportDesc(ImportDesc):
     type_idx: int
 
+
 @dataclasses.dataclass
 class TableImportDesc(ImportDesc):
     table_type: TableType
+
 
 @dataclasses.dataclass
 class MemoryImportDesc(ImportDesc):
     memory_type: MemoryType
 
+
 @dataclasses.dataclass
 class GlobalImportDesc(ImportDesc):
     global_type: GlobalType
+
 
 @dataclasses.dataclass
 class Validator:
