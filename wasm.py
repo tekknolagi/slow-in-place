@@ -23,6 +23,7 @@ TYPE_SUB = -48
 TYPE_SUBFINAL = -49
 TYPE_REC = -50
 TYPE_VOID = -64
+TYPE_REPR =  {-1: 'i32', -2: 'i64', -3: 'f32', -4: 'f64', -5: 'v128', -13: 'nullfuncref', -14: 'nullexternref', -15: 'nullref', -16: 'funcref', -17: 'externref', -18: 'anyref', -19: 'eqref', -20: 'i31ref', -21: 'structref', -22: 'arrayref', -23: 'exn', -28: 'ref', -29: 'ref_null', -32: 'func', -33: 'struct', -34: 'array', -48: 'sub', -49: 'subfinal', -50: 'rec', -64: 'void'}
 SEC_TYPE = 1
 SEC_IMPORT = 2
 SEC_FUNCTION = 3

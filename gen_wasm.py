@@ -4,9 +4,12 @@ with open("jsc-wasm.json", "r") as f:
     wasm = json.load(f)
 
 
+type_repr = {}
 for name, entry in wasm["type"].items():
+    type_repr[entry["value"]] = name
     upcase_name = name.upper()
     print(f"TYPE_{upcase_name} = {entry['value']}")
+print("TYPE_REPR = ", type_repr)
 
 
 for name, entry in wasm["section"].items():

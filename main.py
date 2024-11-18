@@ -12,6 +12,9 @@ FUNC_TYPE = b"\x60"
 class ValType:
     value: int
 
+    def __repr__(self):
+        return TYPE_REPR[self.value]
+
 
 IMPORT_DESC_FUNC = 0x00
 IMPORT_DESC_TABLE = 0x01
