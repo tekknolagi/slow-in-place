@@ -1,23 +1,11 @@
 import io
 import dataclasses
 import struct
+from wasm import *
 
 MAGIC_NUMBER = b"\x00asm"
 VERSION_1 = b"\x01\x00\x00\x00"
 FUNC_TYPE = b"\x60"
-SEC_CUSTOM = 0
-SEC_TYPE = 1
-SEC_IMPORT = 2
-SEC_FUNCTION = 3
-SEC_TABLE = 4
-SEC_MEMORY = 5
-SEC_GLOBAL = 6
-SEC_EXPORT = 7
-SEC_START = 8
-SEC_ELEMENT = 9
-SEC_CODE = 10
-SEC_DATA = 11
-SEC_DATA_COUNT = 12
 
 
 @dataclasses.dataclass
@@ -268,21 +256,28 @@ class Validator:
             type_idx = self.read_u32()
             self.functions.append(TypeIdx(type_idx))
 
-    def parse_code(self) -> Code:
-        size = self.read_u32()
+    def parse_code(self, size: int) -> Code:
+        before = self.module.tell()
         locals = []
         local_count = self.read_u32()
         for _ in range(local_count):
             count = self.read_u32()
-            val_type = self.read_byte()
-            locals.extend([BYTE_TO_VALTYPE[val_type]] * count)
-        body = self.module.read(size)
-        return Code(size, locals, body)
+            valtype = self.parse_valtype()
+            locals.extend([valtype] * count)
+        locals_size = self.module.tell() - before
+        body = self.module.read(size - locals_size)
+        return Code(locals, body)
 
     def parse_code_section(self, size: int) -> None:
         count = self.read_u32()
         for _ in range(count):
-            code = self.parse_code()
+            code_size = self.read_u32()
+            before = self.module.tell()
+            code = self.parse_code(code_size)
+            after = self.module.tell()
+            assert (
+                after - before == code_size
+            ), f"Expected {code_size} bytes, read {after - before}"
             self.code.append(code)
 
 
