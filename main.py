@@ -1,6 +1,7 @@
 import io
 import dataclasses
 import struct
+import typing
 from wasm import *
 
 MAGIC_NUMBER = b"\x00asm"
@@ -12,7 +13,7 @@ FUNC_TYPE = b"\x60"
 class ValType:
     value: int
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return TYPE_REPR[self.value]
 
 
@@ -39,7 +40,7 @@ class TableType:
     elem_type: ValType
     limits: Limits
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.elem_type.value not in (TYPE_FUNCREF, TYPE_EXTERNREF):
             raise ValueError(f"Invalid elem_type {self.elem_type}")
 
@@ -102,7 +103,7 @@ class Code:
 class Parser:
     module: io.BytesIO
     func_types: list[FuncType] = dataclasses.field(default_factory=list)
-    imports: list[ImportDesc] = dataclasses.field(default_factory=list)
+    imports: list[Import] = dataclasses.field(default_factory=list)
     functions: list[TypeIdx] = dataclasses.field(default_factory=list)
     code: list[Code] = dataclasses.field(default_factory=list)
 
@@ -188,23 +189,21 @@ class Parser:
                 after - before == sec_size
             ), f"Expected {sec_size} bytes, read {after - before}"
 
+    T = typing.TypeVar("T")
+
+    def read_vec(self, reader: typing.Callable[[], T]) -> list[T]:
+        count = self.read_u32()
+        return [reader() for _ in range(count)]
+
     def parse_func_type(self) -> FuncType:
         self.expect(FUNC_TYPE)
-        input_count = self.read_u32()
-        inputs = []
-        for _ in range(input_count):
-            inputs.append(self.parse_valtype())
-        output_count = self.read_u32()
-        outputs = []
-        for _ in range(output_count):
-            outputs.append(self.parse_valtype())
+        inputs = self.read_vec(self.parse_valtype)
+        outputs = self.read_vec(self.parse_valtype)
         return FuncType(inputs, outputs)
 
     def parse_type_section(self, size: int) -> None:
-        count = self.read_u32()
-        for idx in range(count):
-            assert idx == len(self.func_types)
-            self.func_types.append(self.parse_func_type())
+        func_types = self.read_vec(self.parse_func_type)
+        self.func_types.extend(func_types)
 
     def parse_importdesc(self) -> ImportDesc:
         kind = self.read_byte()
@@ -223,21 +222,22 @@ class Parser:
         else:
             raise ValueError(f"Unknown importdesc kind {kind}")
 
+    def parse_import(self) -> Import:
+        mod = self.read_name()
+        name = self.read_name()
+        desc_type = self.parse_importdesc()
+        return Import(mod, name, desc_type)
+
     def parse_import_section(self, size: int) -> None:
-        count = self.read_u32()
-        for _ in range(count):
-            mod = self.read_name()
-            name = self.read_name()
-            desc_type = self.parse_importdesc()
-            self.imports.append(Import(mod, name, desc_type))
+        imports = self.read_vec(self.parse_import)
+        self.imports.extend(imports)
 
     def parse_function_section(self, size: int) -> None:
-        count = self.read_u32()
-        for _ in range(count):
-            type_idx = self.read_u32()
-            self.functions.append(TypeIdx(type_idx))
+        indices = self.read_vec(self.read_u32)
+        self.functions.extend(TypeIdx(idx) for idx in indices)
 
-    def parse_code(self, size: int) -> Code:
+    def parse_code(self) -> Code:
+        size = self.read_u32()
         before = self.module.tell()
         locals = []
         local_count = self.read_u32()
@@ -250,16 +250,8 @@ class Parser:
         return Code(locals, body)
 
     def parse_code_section(self, size: int) -> None:
-        count = self.read_u32()
-        for _ in range(count):
-            code_size = self.read_u32()
-            before = self.module.tell()
-            code = self.parse_code(code_size)
-            after = self.module.tell()
-            assert (
-                after - before == code_size
-            ), f"Expected {code_size} bytes, read {after - before}"
-            self.code.append(code)
+        codes = self.read_vec(self.parse_code)
+        self.code.extend(codes)
 
 
 @dataclasses.dataclass
