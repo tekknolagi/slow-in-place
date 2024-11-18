@@ -299,12 +299,90 @@ class Validator:
         for idx, function in enumerate(parser.functions):
             func_type = parser.func_types[function.value]
             code = parser.code[idx]
-            self.validate_code(func_type, code)
+            self.validate_code(parser, func_type, code)
 
-    def validate_code(self, func_type: FuncType, code: Code) -> None:
+    def validate_code(self, parser: Parser, func_type: FuncType, code: Code) -> None:
+        locals: list[ValType] = func_type.inputs + code.locals
         control_stack: list[Control] = []
         value_stack: list[ValType] = []
+        ip = 0
         print(f"Validating function with type {func_type} and code {code}")
+
+        def byte() -> int:
+            nonlocal ip
+            ip += 1
+            return code.body[ip - 1]
+
+        def _leb128(signed: bool = False, max: int | None = None) -> int:
+            """Internal LEB128 decoding routine"""
+            decoded = 0
+            shift = 0
+            size = 1
+            while True:
+                byte_ = byte()
+                decoded |= (byte_ & 0x7F) << shift
+                shift += 7
+                if byte_ & 0x80 == 0:
+                    break
+                if max == size:  # this also works if max=None
+                    raise ValueError(
+                        "encoded value seems to be >{0:d} bytes".format(size)
+                    )
+                size += 1
+            else:
+                raise ValueError("truncated value after {0:d} bytes".format(size))
+            if signed and byte_ & 0x40:
+                decoded -= 1 << shift
+
+            return decoded
+
+        def u32() -> int:
+            return _leb128(signed=False, max=4)
+
+        def i32() -> int:
+            return _leb128(signed=True, max=4)
+
+        while True:
+            opcode = byte()
+            if opcode == INSTR_UNREACHABLE:
+                pass
+            elif opcode == INSTR_NOP:
+                pass
+            elif opcode == INSTR_GET_LOCAL:
+                idx = u32()
+                value_stack.append(locals[idx])
+            elif opcode == INSTR_I32_EQZ:
+                # Takes i32 and returns i32
+                pass
+            elif opcode == INSTR_IF:
+                blocktype = i32()
+                value_stack.append(ValType(TYPE_I32))
+            elif opcode == INSTR_ELSE:
+                pass
+            elif opcode == INSTR_I32_CONST:
+                _ = i32()
+                value_stack.append(ValType(TYPE_I32))
+            elif opcode in (INSTR_I32_SUB, INSTR_I32_ADD):
+                assert value_stack.pop() == ValType(TYPE_I32)
+                assert value_stack.pop() == ValType(TYPE_I32)
+                value_stack.append(ValType(TYPE_I32))
+            elif opcode == INSTR_CALL:
+                idx = u32()
+                func_type = parser.func_types[parser.functions[idx].value]
+                for _ in range(len(func_type.inputs)):
+                    value_stack.pop()
+                for output in func_type.outputs:
+                    value_stack.append(output)
+            elif opcode == INSTR_END:
+                if control_stack:
+                    control_stack.pop()
+                else:
+                    # End of code
+                    break
+            else:
+                raise ValueError(
+                    f"Unknown opcode {opcode} ({hex(opcode)}; {INSTR_REPR[opcode]})"
+                )
 
 
 with open("fib.wasm", "rb") as f:
