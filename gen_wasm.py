@@ -6,9 +6,10 @@ with open("jsc-wasm.json", "r") as f:
 
 type_repr = {}
 for name, entry in wasm["type"].items():
-    type_repr[entry["value"]] = name
+    value = entry["value"]
+    type_repr[value] = name
     upcase_name = name.upper()
-    print(f"TYPE_{upcase_name} = {entry['value']}")
+    print(f"TYPE_{upcase_name} = {value}")
 print("TYPE_REPR = ", type_repr)
 
 
@@ -17,6 +18,7 @@ for name, entry in wasm["section"].items():
     print(f"SEC_{upcase_name} = {entry['value']}")
 
 seen = set()
+instr_repr = {}
 for name, entry in wasm["opcode"].items():
     upcase_name = name.upper().replace(".", "_").replace("/", "_")
     value = entry["value"]
@@ -31,6 +33,8 @@ for name, entry in wasm["opcode"].items():
         continue
     if value in seen:
         raise ValueError(f"Duplicate opcode {value}")
+    instr_repr[value] = name
     seen.add(value)
     hex_value = hex(value).upper()
-    print(f"{upcase_name} = {hex_value}")
+    print(f"INSTR_{upcase_name} = {hex_value}")
+print("INSTR_REPR = ", instr_repr)
