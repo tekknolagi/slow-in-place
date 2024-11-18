@@ -284,8 +284,63 @@ class Parser:
             self.code.append(code)
 
 
-with open("simple.wasm", "rb") as f:
+@dataclasses.dataclass
+class Value:
+    pass
+
+
+@dataclasses.dataclass
+class NumValue(Value):
+    type: NumType
+    value: int | float
+
+
+@dataclasses.dataclass
+class RefValue(Value):
+    type: RefType
+    value: int
+
+
+@dataclasses.dataclass
+class Control:
+    pass
+
+
+@dataclasses.dataclass
+class Func(Control):
+    pass
+
+
+@dataclasses.dataclass
+class Block(Control):
+    pass
+
+
+@dataclasses.dataclass
+class If(Control):
+    pass
+
+
+@dataclasses.dataclass
+class Validator:
+    module_env: object = dataclasses.field(default=None)
+
+    def validate(self, parser: Parser) -> None:
+        for idx, function in enumerate(parser.functions):
+            func_type = parser.func_types[function.value]
+            code = parser.code[idx]
+            self.validate_code(func_type, code)
+
+    def validate_code(self, func_type: FuncType, code: Code) -> None:
+        control_stack: list[Control] = []
+        value_stack: list[ValType] = []
+        print(f"Validating function with type {func_type} and code {code}")
+
+
+with open("fib.wasm", "rb") as f:
     contents = f.read()
 
-validator = Validator(io.BytesIO(contents))
-validator.parse_module()
+parser = Parser(io.BytesIO(contents))
+parser.parse_module()
+validator = Validator()
+validator.validate(parser)
