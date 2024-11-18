@@ -202,6 +202,7 @@ class Validator:
                 break
             sec_type = sec_type_[0]
             sec_size = self.read_u32()
+            before = self.module.tell()
             if sec_type == SEC_TYPE:
                 self.parse_type_section(sec_size)
             elif sec_type == SEC_IMPORT:
@@ -213,6 +214,8 @@ class Validator:
             else:
                 print(f"Skipping section {sec_type}")
                 self.module.seek(sec_size, io.SEEK_CUR)
+            after = self.module.tell()
+            assert after - before == sec_size, f"Expected {sec_size} bytes, read {after - before}"
 
     def parse_func_type(self) -> FuncType:
         self.expect(FUNC_TYPE)
