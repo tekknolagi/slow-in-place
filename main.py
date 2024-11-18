@@ -292,6 +292,11 @@ class If(Control):
 
 
 @dataclasses.dataclass
+class Else(Control):
+    pass
+
+
+@dataclasses.dataclass
 class Validator:
     module_env: object = dataclasses.field(default=None)
 
@@ -357,8 +362,11 @@ class Validator:
             elif opcode == INSTR_IF:
                 blocktype = i32()
                 value_stack.append(ValType(TYPE_I32))
+                control_stack.append(If())
             elif opcode == INSTR_ELSE:
-                pass
+                block = control_stack.pop()
+                assert isinstance(block, If)
+                control_stack.append(Else())
             elif opcode == INSTR_I32_CONST:
                 _ = i32()
                 value_stack.append(ValType(TYPE_I32))
