@@ -129,11 +129,19 @@ class TypeIdx:
 
 
 @dataclasses.dataclass
+class Code:
+    size: int
+    locals: list[ValType]
+    body: bytes
+
+
+@dataclasses.dataclass
 class Validator:
     module: io.BytesIO
     func_types: list[FuncType] = dataclasses.field(default_factory=list)
     imports: list[ImportDesc] = dataclasses.field(default_factory=list)
     functions: list[TypeIdx] = dataclasses.field(default_factory=list)
+    code: list[Code] = dataclasses.field(default_factory=list)
 
     def expect(self, expected: bytes) -> None:
         actual = self.module.read(len(expected))
@@ -200,6 +208,8 @@ class Validator:
                 self.parse_import_section(sec_size)
             elif sec_type == SEC_FUNCTION:
                 self.parse_function_section(sec_size)
+            elif sec_type == SEC_CODE:
+                self.parse_code_section(sec_size)
             else:
                 print(f"Skipping section {sec_type}")
                 self.module.seek(sec_size, io.SEEK_CUR)
@@ -254,6 +264,23 @@ class Validator:
         for _ in range(count):
             type_idx = self.read_u32()
             self.functions.append(TypeIdx(type_idx))
+
+    def parse_code(self) -> Code:
+        size = self.read_u32()
+        locals = []
+        local_count = self.read_u32()
+        for _ in range(local_count):
+            count = self.read_u32()
+            val_type = self.read_byte()
+            locals.extend([BYTE_TO_VALTYPE[val_type]] * count)
+        body = self.module.read(size)
+        return Code(size, locals, body)
+
+    def parse_code_section(self, size: int) -> None:
+        count = self.read_u32()
+        for _ in range(count):
+            code = self.parse_code()
+            self.code.append(code)
 
 
 with open("simple.wasm", "rb") as f:
