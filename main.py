@@ -118,13 +118,12 @@ class TypeIdx:
 
 @dataclasses.dataclass
 class Code:
-    size: int
     locals: list[ValType]
     body: bytes
 
 
 @dataclasses.dataclass
-class Validator:
+class Parser:
     module: io.BytesIO
     func_types: list[FuncType] = dataclasses.field(default_factory=list)
     imports: list[ImportDesc] = dataclasses.field(default_factory=list)
@@ -181,6 +180,10 @@ class Validator:
         size = self.read_u32()
         return self.module.read(size).decode("utf-8")
 
+    def parse_valtype(self) -> ValType:
+        byte = self.read_byte()
+        return BYTE_TO_VALTYPE[byte]
+
     def parse_module(self) -> None:
         self.expect(MAGIC_NUMBER)
         self.expect(VERSION_1)
@@ -203,20 +206,20 @@ class Validator:
                 print(f"Skipping section {sec_type}")
                 self.module.seek(sec_size, io.SEEK_CUR)
             after = self.module.tell()
-            assert after - before == sec_size, f"Expected {sec_size} bytes, read {after - before}"
+            assert (
+                after - before == sec_size
+            ), f"Expected {sec_size} bytes, read {after - before}"
 
     def parse_func_type(self) -> FuncType:
         self.expect(FUNC_TYPE)
         input_count = self.read_u32()
         inputs = []
         for _ in range(input_count):
-            val_type = self.read_byte()
-            inputs.append(BYTE_TO_VALTYPE[val_type])
+            inputs.append(self.parse_valtype())
         output_count = self.read_u32()
         outputs = []
         for _ in range(output_count):
-            val_type = self.read_byte()
-            outputs.append(BYTE_TO_VALTYPE[val_type])
+            outputs.append(self.parse_valtype())
         return FuncType(inputs, outputs)
 
     def parse_type_section(self, size: int) -> None:
