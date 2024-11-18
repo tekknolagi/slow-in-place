@@ -10,39 +10,8 @@ FUNC_TYPE = b"\x60"
 
 @dataclasses.dataclass
 class ValType:
-    pass
+    value: int
 
-
-@dataclasses.dataclass
-class NumType(ValType):
-    kind: str
-    size_bytes: int
-
-
-I32 = NumType("i", 4)
-I64 = NumType("i", 8)
-F32 = NumType("f", 4)
-F64 = NumType("f", 8)
-V128 = NumType("v", 16)
-
-
-@dataclasses.dataclass
-class RefType(ValType):
-    kind: str
-
-
-FuncRef = RefType("funcref")
-ExternRef = RefType("externref")
-
-BYTE_TO_VALTYPE = {
-    0x7F: I32,
-    0x7E: I64,
-    0x7D: F32,
-    0x7C: F64,
-    0x7B: V128,
-    0x70: FuncRef,
-    0x6F: ExternRef,
-}
 
 IMPORT_DESC_FUNC = 0x00
 IMPORT_DESC_TABLE = 0x01
@@ -64,8 +33,12 @@ class Limits:
 
 @dataclasses.dataclass
 class TableType:
-    elem_type: RefType
+    elem_type: ValType
     limits: Limits
+
+    def __post_init__(self):
+        if self.elem_type.value not in (TYPE_FUNCREF, TYPE_EXTERNREF):
+            raise ValueError(f"Invalid elem_type {self.elem_type}")
 
 
 @dataclasses.dataclass
@@ -176,13 +149,15 @@ class Parser:
     def read_u32(self) -> int:
         return self._read_leb128(signed=False, max=4)
 
+    def read_s7(self) -> int:
+        return self._read_leb128(signed=True, max=1)
+
+    def parse_valtype(self) -> ValType:
+        return ValType(self.read_s7())
+
     def read_name(self) -> str:
         size = self.read_u32()
         return self.module.read(size).decode("utf-8")
-
-    def parse_valtype(self) -> ValType:
-        byte = self.read_byte()
-        return BYTE_TO_VALTYPE[byte]
 
     def parse_module(self) -> None:
         self.expect(MAGIC_NUMBER)
@@ -291,13 +266,13 @@ class Value:
 
 @dataclasses.dataclass
 class NumValue(Value):
-    type: NumType
+    type: ValType
     value: int | float
 
 
 @dataclasses.dataclass
 class RefValue(Value):
-    type: RefType
+    type: ValType
     value: int
 
 
