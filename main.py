@@ -153,11 +153,9 @@ class Parser:
     def read_u32(self) -> int:
         return self._read_leb128(signed=False, max=4)
 
-    def read_s7(self) -> int:
-        return self._read_leb128(signed=True, max=1)
-
     def parse_valtype(self) -> ValType:
-        return ValType(self.read_s7())
+        byte = self._read_leb128(signed=True, max=1)
+        return ValType(byte)
 
     def read_name(self) -> str:
         size = self.read_u32()
@@ -271,29 +269,52 @@ class RefValue(Value):
     value: int
 
 
-@dataclasses.dataclass
-class Control:
-    pass
+@dataclasses.dataclass(kw_only=True)
+class ControlEntry:
+    opcode: int
+    opcode_start: int
+    outputs: list[ValType]
+    value_stack_top: int
+    first_ref: int = -1
 
 
 @dataclasses.dataclass
-class Func(Control):
-    pass
+class SideTable:
+    table: list[int] = dataclasses.field(default_factory=list)
+    start_pos: int = 0
 
+    def reset(self) -> None:
+        self.table.clear()
+        self.start_pos = 0
 
-@dataclasses.dataclass
-class Block(Control):
-    pass
+    def ref0(self, target: ControlEntry, pos: int) -> None:
+        self.refV(target, pos, 0, 0)
 
+    def refV(self, target: ControlEntry, pos: int, value_count: int, pop_count: int) -> None:
+        pc = self.rel(pos)
+        stp = len(self.table)
+        self.putBrEntry(pc, value_count, pop_count, target.first_ref)
+        target.first_ref = stp
 
-@dataclasses.dataclass
-class If(Control):
-    pass
+    def refElse(self, target: ControlEntry, pos: int) -> None:
+        pc = self.rel(pos)
+        stp = len(self.table)
+        target.else_ref = stp
+        self.putBrEntry(pc, 0, 0, -1)
 
+    def bindElse(self, target: ControlEntry, pos: int) -> None:
+        self.bind0(target, target.else_ref, pos, len(self.table))
+        target.else_ref = -1
 
-@dataclasses.dataclass
-class Else(Control):
-    pass
+    def bind0(self, *args) -> None:
+        # TODO(max): Implement this
+        pass
+
+    def rel(self, pos: int) -> int:
+        return pos - self.start_pos
+
+    def putBrEntry(self, delta_pc: int, value_count: int, pop_count: int, delta_stp: int) -> None:
+        self.table += [delta_pc, value_count, pop_count, delta_stp]
 
 
 @dataclasses.dataclass
@@ -308,8 +329,9 @@ class Validator:
 
     def validate_code(self, parser: Parser, func_type: FuncType, code: Code) -> None:
         locals: list[ValType] = func_type.inputs + code.locals
-        control_stack: list[Control] = []
+        control_stack: list[ControlEntry] = []
         value_stack: list[ValType] = []
+        sidetable = SideTable()
         ip = 0
         print(f"Validating function with type {func_type} and code {code}")
 
@@ -341,46 +363,104 @@ class Validator:
 
             return decoded
 
+        def i8() -> int:
+            return _leb128(signed=True, max=1)
+
         def u32() -> int:
             return _leb128(signed=False, max=4)
 
         def i32() -> int:
             return _leb128(signed=True, max=4)
 
-        while True:
+        def pop(expected: ValType) -> None:
+            actual = value_stack.pop()
+            if actual != expected:
+                raise ValueError(f"Expected {expected}; got {actual}")
+
+        def push_multiple(types: list[ValType]) -> None:
+            value_stack.extend(types)
+
+        def check_stack_matches(expecteds: list[ValType]) -> None:
+            if len(value_stack) < len(expecteds):
+                raise ValueError("Stack too small")
+            for i, expected in enumerate(expecteds):
+                actual = value_stack[-1 - i]
+                if actual != expected:
+                    raise ValueError(f"Expected {expected}; got {actual}")
+
+        def sig(inputs, outputs):
+            for param in inputs:
+                pop(param)
+            for output in outputs:
+                value_stack.append(output)
+
+        def blocktype() -> int:
+            return i8()
+
+        def block_outputs(bt: int) -> list[ValType]:
+            if bt == TYPE_VOID: return []
+            if bt in (
+                TYPE_I32,
+                TYPE_I64,
+                TYPE_F32,
+                TYPE_F64,
+                TYPE_V128,
+                TYPE_FUNCREF,
+                TYPE_EXTERNREF,
+                TYPE_ANYREF,
+                    ):
+                return [ValType(bt)]
+            raise ValueError(f"Unknown blocktype {bt}")
+
+        while ip < len(code.body):
+            opcode_start = ip
             opcode = byte()
             if opcode == INSTR_UNREACHABLE:
                 pass
             elif opcode == INSTR_NOP:
                 pass
             elif opcode == INSTR_GET_LOCAL:
+                # TODO(max): Check that local has been initialized
                 idx = u32()
-                value_stack.append(locals[idx])
+                sig([], [locals[idx]])
             elif opcode == INSTR_I32_EQZ:
-                # Takes i32 and returns i32
-                pass
+                sig([ValType(TYPE_I32)], [ValType(TYPE_I32)])
             elif opcode == INSTR_IF:
-                blocktype = i32()
-                value_stack.append(ValType(TYPE_I32))
-                control_stack.append(If())
+                bt = blocktype()
+                outputs = block_outputs(bt)
+                pop(ValType(TYPE_I32))  # condition
+                ctl = ControlEntry(
+                    opcode=opcode,
+                    opcode_start=opcode_start,
+                    outputs=outputs,
+                    value_stack_top=len(value_stack),
+                    # TODO(max): else_ref?
+                )
+                control_stack.append(ctl)
+                sidetable.refElse(ctl, opcode_start)
             elif opcode == INSTR_ELSE:
-                block = control_stack.pop()
-                assert isinstance(block, If)
-                control_stack.append(Else())
+                if not control_stack or control_stack[-1].opcode != INSTR_IF:
+                    raise ValueError("Else without matching if")
+                ctl = control_stack[-1]
+                stack_size_since_ctl = len(value_stack) - ctl.value_stack_top
+                if stack_size_since_ctl != len(ctl.outputs):
+                    raise ValueError("Else with mismatched stack")
+                check_stack_matches(ctl.outputs)
+                # TODO(max): Reset initialization state
+                sidetable.ref0(ctl, opcode_start)
+                sidetable.bindElse(ctl, opcode_start+1)
+                ctl.opcode = opcode
+                # TODO(max): Reset stack top
+                push_multiple(ctl.outputs)
             elif opcode == INSTR_I32_CONST:
                 _ = i32()
-                value_stack.append(ValType(TYPE_I32))
+                sig([], [ValType(TYPE_I32)])
             elif opcode in (INSTR_I32_SUB, INSTR_I32_ADD):
-                assert value_stack.pop() == ValType(TYPE_I32)
-                assert value_stack.pop() == ValType(TYPE_I32)
-                value_stack.append(ValType(TYPE_I32))
+                sig([ValType(TYPE_I32), ValType(TYPE_I32)], [ValType(TYPE_I32)])
             elif opcode == INSTR_CALL:
                 idx = u32()
                 func_type = parser.func_types[parser.functions[idx].value]
-                for _ in range(len(func_type.inputs)):
-                    value_stack.pop()
-                for output in func_type.outputs:
-                    value_stack.append(output)
+                sig(func_type.inputs, func_type.outputs)
             elif opcode == INSTR_END:
                 if control_stack:
                     control_stack.pop()
